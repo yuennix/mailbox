@@ -40,13 +40,25 @@ export default function BrowserPage() {
   const [url, setUrl] = useState("https://yopmail.com");
   const [inputUrl, setInputUrl] = useState("https://yopmail.com");
   const [isLoading, setIsLoading] = useState(false);
+  // Yopmail always blocks iframe embedding, so start in error state
+  const INITIAL_BLOCKED = true;
   const [canGoBack, setCanGoBack] = useState(false);
   const [canGoForward, setCanGoForward] = useState(false);
   const [captchaDetected, setCaptchaDetected] = useState(false);
   const [lastAction, setLastAction] = useState<string | null>(null);
   const [showAutomation, setShowAutomation] = useState(false);
   const [copiedScript, setCopiedScript] = useState<string | null>(null);
-  const [iframeError, setIframeError] = useState(false);
+  const [iframeError, setIframeError] = useState(INITIAL_BLOCKED);
+
+  const isBlockedSite = useCallback((target: string) => {
+    try {
+      const hostname = new URL(target).hostname;
+      const blocked = ["yopmail.com", "www.yopmail.com"];
+      return blocked.some((b) => hostname.includes(b));
+    } catch {
+      return false;
+    }
+  }, []);
 
   const updateNavState = useCallback(() => {
     const iframe = iframeRef.current;
@@ -118,10 +130,15 @@ export default function BrowserPage() {
       }
       setUrl(finalUrl);
       setInputUrl(finalUrl);
-      setIsLoading(true);
-      setIframeError(false);
+      if (isBlockedSite(finalUrl)) {
+        setIframeError(true);
+        setIsLoading(false);
+      } else {
+        setIsLoading(true);
+        setIframeError(false);
+      }
     },
-    []
+    [isBlockedSite]
   );
 
   const goBack = useCallback(() => {
@@ -412,18 +429,27 @@ export default function BrowserPage() {
       {/* Iframe or Fallback */}
       <div className="relative flex-1 overflow-hidden">
         {iframeError ? (
-          <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
-            <ShieldAlert className="h-12 w-12 text-muted-foreground" />
-            <div>
-              <h3 className="text-lg font-semibold">Cannot Load in Frame</h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Yopmail blocks iframe embedding. Open it in a new tab to continue.
+          <div className="flex h-full flex-col items-center justify-center gap-6 p-8 text-center">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+              <Globe className="h-8 w-8 text-cyan-400" />
+            </div>
+            <div className="max-w-xs space-y-2">
+              <h3 className="text-lg font-semibold">Open in Browser</h3>
+              <p className="text-sm text-muted-foreground">
+                <span className="font-medium text-foreground">{url}</span> blocks
+                embedding inside apps for security reasons. Tap the button below
+                to open it in your browser.
               </p>
             </div>
-            <Button onClick={openInNewTab} className="gap-2">
+            <Button onClick={openInNewTab} size="lg" className="gap-2 px-8">
               <ExternalLink className="h-4 w-4" />
-              Open Yopmail
+              Open in Browser
             </Button>
+            <p className="text-xs text-muted-foreground">
+              Use the automation scripts (
+              <Wand2 className="inline h-3 w-3" />) to copy helpful scripts for
+              your browser console.
+            </p>
           </div>
         ) : (
           <>
