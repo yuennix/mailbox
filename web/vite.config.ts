@@ -12,7 +12,78 @@ const BLOCKED_RES_HEADERS = [
   "x-content-type-options",
 ];
 
-function rewriteHtml(html: string): string {
+// Rotate user agents to reduce bot detection
+const USER_AGENTS = [
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15",
+];
+let uaIndex = 0;
+function nextUserAgent() {
+  return USER_AGENTS[uaIndex++ % USER_AGENTS.length];
+}
+
+function isCaptchaPage(html: string): boolean {
+  return (
+    html.includes("g-recaptcha") ||
+    html.includes("recaptcha/api.js") ||
+    html.includes("Complete the CAPTCHA") ||
+    html.includes("complete the captcha") ||
+    (html.includes("captcha") && html.includes("robot"))
+  );
+}
+
+function captchaBypassPage(retryUrl: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Retrying Yopmail...</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+           background: #0f172a; color: #e2e8f0;
+           display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    .card { background: #1e293b; border: 1px solid #334155; border-radius: 12px;
+            padding: 32px 28px; max-width: 340px; width: 90%; text-align: center; }
+    .icon { font-size: 40px; margin-bottom: 16px; }
+    h2 { font-size: 18px; font-weight: 600; margin-bottom: 10px; color: #f1f5f9; }
+    p  { font-size: 13px; color: #94a3b8; line-height: 1.6; margin-bottom: 8px; }
+    .bar { height: 4px; background: #1e3a5f; border-radius: 2px; margin: 20px 0 16px;
+           overflow: hidden; }
+    .bar-fill { height: 100%; background: linear-gradient(90deg, #38bdf8, #818cf8);
+                animation: fill 4s linear forwards; border-radius: 2px; }
+    @keyframes fill { from { width: 0% } to { width: 100% } }
+    button { background: #3b82f6; color: #fff; border: none; border-radius: 8px;
+             padding: 10px 22px; font-size: 14px; cursor: pointer; margin-top: 4px; }
+    button:hover { background: #2563eb; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">🔄</div>
+    <h2>Yopmail Verification</h2>
+    <p>Yopmail asked for a CAPTCHA check. Automatically retrying with a fresh session…</p>
+    <div class="bar"><div class="bar-fill"></div></div>
+    <p style="font-size:12px;color:#64748b">Redirecting in 4 seconds</p>
+    <button onclick="go()">Retry Now</button>
+  </div>
+  <script>
+    function go() { window.location.replace('${retryUrl}'); }
+    setTimeout(go, 4000);
+  </script>
+</body>
+</html>`;
+}
+
+function rewriteHtml(html: string, reqPath: string): string {
+  // Detect CAPTCHA page and replace with an auto-retry page
+  if (isCaptchaPage(html)) {
+    // Retry the homepage so we get a fresh session
+    return captchaBypassPage(`${PROXY_PREFIX}/en/`);
+  }
   html = html.replace(/https?:\/\/yopmail\.com/g, PROXY_PREFIX);
   html = html.replace(
     /(href|src|action|data-src)="\/(?!\/|yopmail-proxy)/g,
@@ -22,11 +93,8 @@ function rewriteHtml(html: string): string {
 }
 
 function rewriteJs(js: string): string {
-  // Strip domain=yopmail.com from document.cookie assignments so cookies
-  // are stored under our proxy domain and forwarded correctly on inbox loads
   js = js.replace(/;domain=yopmail\.com/gi, "");
   js = js.replace(/domain=yopmail\.com;/gi, "");
-  // Rewrite any hardcoded absolute URLs to go through our proxy
   js = js.replace(/https?:\/\/yopmail\.com/g, PROXY_PREFIX);
   return js;
 }
@@ -56,7 +124,6 @@ function yopmailProxyPlugin(): Plugin {
             const targetPath = req.url || "/";
             const targetUrl = TARGET + targetPath;
 
-            // Rewrite referer from our proxy URL back to yopmail.com
             const rawReferer: string = req.headers["referer"] || "";
             const upstreamReferer = rawReferer
               ? rawReferer
@@ -64,28 +131,33 @@ function yopmailProxyPlugin(): Plugin {
                   .replace(/^https?:\/\/[^/]+\/?$/, "https://yopmail.com/")
               : "https://yopmail.com/";
 
+            // Build cookie string — inject ytime preemptively so Yopmail never
+            // has a reason to block based on a missing ytime cookie
+            const now = new Date();
+            const ytimeVal = `${now.getHours()}:${now.getMinutes()}`;
+            let cookieStr = req.headers["cookie"] || "";
+            if (!cookieStr.includes("ytime=")) {
+              cookieStr = cookieStr ? `${cookieStr}; ytime=${ytimeVal}` : `ytime=${ytimeVal}`;
+            }
+
             const forwardHeaders: Record<string, string> = {
               host: "yopmail.com",
               referer: upstreamReferer,
               origin: "https://yopmail.com",
-              "user-agent":
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-              accept: req.headers["accept"] || "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-              "accept-language":
-                req.headers["accept-language"] || "en-US,en;q=0.9",
+              "user-agent": nextUserAgent(),
+              accept: req.headers["accept"] || "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+              "accept-language": req.headers["accept-language"] || "en-US,en;q=0.9",
               "accept-encoding": "identity",
               "cache-control": "no-cache",
               pragma: "no-cache",
+              "upgrade-insecure-requests": "1",
+              "connection": "keep-alive",
+              "cookie": cookieStr,
             };
 
             // Forward sec-fetch headers so Yopmail sees a legitimate same-origin request
             for (const h of ["sec-fetch-site", "sec-fetch-mode", "sec-fetch-dest", "sec-fetch-user"]) {
               if (req.headers[h]) forwardHeaders[h] = req.headers[h];
-            }
-
-            // Forward cookies — browser will include ytime once we've set it
-            if (req.headers["cookie"]) {
-              forwardHeaders["cookie"] = req.headers["cookie"];
             }
 
             let body: Buffer | undefined;
@@ -121,7 +193,6 @@ function yopmailProxyPlugin(): Plugin {
               res.setHeader(key, value);
             }
 
-            // Rewrite Set-Cookie headers to work on our proxy domain
             const rawCookies: string[] =
               (fetchRes.headers as any).getSetCookie?.() ?? [];
             const rewrittenCookies = rawCookies.length ? rewriteCookies(rawCookies) : [];
@@ -132,24 +203,20 @@ function yopmailProxyPlugin(): Plugin {
 
             if (contentType.includes("text/html")) {
               const html = await fetchRes.text();
-              const rewritten = rewriteHtml(html);
+              const rewritten = rewriteHtml(html, targetPath);
               res.setHeader("content-type", "text/html; charset=utf-8");
               res.removeHeader("content-encoding");
               res.removeHeader("content-length");
-              // Inject ytime cookie via HTTP so it's stored under our proxy domain.
-              // Yopmail's JS sets this with domain=yopmail.com which fails on our domain,
-              // so we set it server-side instead.
               res.setHeader("set-cookie", [...rewrittenCookies, makeYtimeCookie()]);
+              // If it was a CAPTCHA page, send 200 so the bypass page renders
+              if (isCaptchaPage(html)) res.statusCode = 200;
               return res.end(rewritten);
             }
 
             if (contentType.includes("javascript") || targetPath.endsWith(".js")) {
               const js = await fetchRes.text();
               const rewritten = rewriteJs(js);
-              res.setHeader(
-                "content-type",
-                contentType || "application/javascript; charset=utf-8"
-              );
+              res.setHeader("content-type", contentType || "application/javascript; charset=utf-8");
               res.removeHeader("content-encoding");
               res.removeHeader("content-length");
               if (rewrittenCookies.length) res.setHeader("set-cookie", rewrittenCookies);
