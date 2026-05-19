@@ -35,30 +35,30 @@ import {
   AUTOMATION_SCRIPTS,
 } from "@/lib/automation";
 
+const YOPMAIL_PROXY = "/yopmail-proxy/";
+
+function toIframeSrc(displayUrl: string): string {
+  try {
+    const { hostname } = new URL(displayUrl);
+    if (hostname.includes("yopmail.com")) return YOPMAIL_PROXY;
+  } catch {
+    // ignore
+  }
+  return displayUrl;
+}
+
 export default function BrowserPage() {
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const [url, setUrl] = useState("https://yopmail.com");
+  const [displayUrl, setDisplayUrl] = useState("https://yopmail.com");
+  const [iframeSrc, setIframeSrc] = useState(YOPMAIL_PROXY);
   const [inputUrl, setInputUrl] = useState("https://yopmail.com");
   const [isLoading, setIsLoading] = useState(false);
-  // Yopmail always blocks iframe embedding, so start in error state
-  const INITIAL_BLOCKED = true;
   const [canGoBack, setCanGoBack] = useState(false);
   const [canGoForward, setCanGoForward] = useState(false);
   const [captchaDetected, setCaptchaDetected] = useState(false);
   const [lastAction, setLastAction] = useState<string | null>(null);
   const [showAutomation, setShowAutomation] = useState(false);
   const [copiedScript, setCopiedScript] = useState<string | null>(null);
-  const [iframeError, setIframeError] = useState(INITIAL_BLOCKED);
-
-  const isBlockedSite = useCallback((target: string) => {
-    try {
-      const hostname = new URL(target).hostname;
-      const blocked = ["yopmail.com", "www.yopmail.com"];
-      return blocked.some((b) => hostname.includes(b));
-    } catch {
-      return false;
-    }
-  }, []);
 
   const updateNavState = useCallback(() => {
     const iframe = iframeRef.current;
@@ -72,10 +72,8 @@ export default function BrowserPage() {
 
   const handleLoad = useCallback(() => {
     setIsLoading(false);
-    setIframeError(false);
     updateNavState();
 
-    // Try to detect captcha in iframe (limited by CORS)
     const iframe = iframeRef.current;
     if (iframe) {
       try {
@@ -95,7 +93,6 @@ export default function BrowserPage() {
           const detected = indicators.some((term) => html.includes(term));
           setCaptchaDetected(detected);
           if (detected) {
-            // Auto-apply anti-captcha if we have access
             setTimeout(() => {
               tryInjectScript(ANTI_CAPTCHA_SCRIPT);
               setTimeout(() => tryInjectScript(BYPASS_YOPMAIL_SCRIPT), 500);
@@ -122,24 +119,17 @@ export default function BrowserPage() {
     }
   }, []);
 
-  const navigate = useCallback(
-    (target: string) => {
-      let finalUrl = target.trim();
-      if (!finalUrl.startsWith("http")) {
-        finalUrl = "https://" + finalUrl;
-      }
-      setUrl(finalUrl);
-      setInputUrl(finalUrl);
-      if (isBlockedSite(finalUrl)) {
-        setIframeError(true);
-        setIsLoading(false);
-      } else {
-        setIsLoading(true);
-        setIframeError(false);
-      }
-    },
-    [isBlockedSite]
-  );
+  const navigate = useCallback((target: string) => {
+    let finalDisplay = target.trim();
+    if (!finalDisplay.startsWith("http")) {
+      finalDisplay = "https://" + finalDisplay;
+    }
+    const src = toIframeSrc(finalDisplay);
+    setDisplayUrl(finalDisplay);
+    setInputUrl(finalDisplay);
+    setIframeSrc(src);
+    setIsLoading(true);
+  }, []);
 
   const goBack = useCallback(() => {
     const iframe = iframeRef.current;
@@ -170,19 +160,16 @@ export default function BrowserPage() {
   }, []);
 
   const openInNewTab = useCallback(() => {
-    window.open(url, "_blank");
-  }, [url]);
+    window.open(displayUrl, "_blank");
+  }, [displayUrl]);
 
-  const copyScript = useCallback(
-    (script: string, name: string) => {
-      navigator.clipboard.writeText(script).then(() => {
-        setCopiedScript(name);
-        toast.success(`${name} copied to clipboard`);
-        setTimeout(() => setCopiedScript(null), 2000);
-      });
-    },
-    []
-  );
+  const copyScript = useCallback((script: string, name: string) => {
+    navigator.clipboard.writeText(script).then(() => {
+      setCopiedScript(name);
+      toast.success(`${name} copied to clipboard`);
+      setTimeout(() => setCopiedScript(null), 2000);
+    });
+  }, []);
 
   const runScriptInIframe = useCallback(
     (script: string, name: string) => {
@@ -196,17 +183,19 @@ export default function BrowserPage() {
     navigate("https://yopmail.com");
   }, [navigate]);
 
-  const handleIframeError = useCallback(() => {
-    setIsLoading(false);
-    setIframeError(true);
-  }, []);
-
   useEffect(() => {
     const interval = setInterval(() => {
       updateNavState();
     }, 1000);
     return () => clearInterval(interval);
   }, [updateNavState]);
+
+  // Fallback: auto-dismiss loading spinner after 8 seconds
+  useEffect(() => {
+    if (!isLoading) return;
+    const t = setTimeout(() => setIsLoading(false), 8000);
+    return () => clearTimeout(t);
+  }, [isLoading, iframeSrc]);
 
   return (
     <div className="flex h-full flex-col bg-background">
@@ -426,70 +415,42 @@ export default function BrowserPage() {
         </div>
       </div>
 
-      {/* Iframe or Fallback */}
+      {/* Iframe */}
       <div className="relative flex-1 overflow-hidden">
-        {iframeError ? (
-          <div className="flex h-full flex-col items-center justify-center gap-6 p-8 text-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
-              <Globe className="h-8 w-8 text-cyan-400" />
+        <iframe
+          ref={iframeRef}
+          src={iframeSrc}
+          className="h-full w-full border-0"
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-top-navigation"
+          onLoad={handleLoad}
+          title="Browser"
+        />
+        {isLoading && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+            <div className="flex flex-col items-center gap-2">
+              <Loader2 className="h-8 w-8 animate-spin text-cyan-400" />
+              <span className="text-sm text-muted-foreground">Loading...</span>
             </div>
-            <div className="max-w-xs space-y-2">
-              <h3 className="text-lg font-semibold">Open in Browser</h3>
-              <p className="text-sm text-muted-foreground">
-                <span className="font-medium text-foreground">{url}</span> blocks
-                embedding inside apps for security reasons. Tap the button below
-                to open it in your browser.
+          </div>
+        )}
+        {captchaDetected && !isLoading && (
+          <div className="absolute left-4 right-4 top-4 z-10 flex items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/10 p-3 backdrop-blur-sm">
+            <ShieldAlert className="h-5 w-5 shrink-0 text-destructive" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-destructive">CAPTCHA Detected</p>
+              <p className="text-xs text-muted-foreground">
+                Open automation tools to apply bypass scripts
               </p>
             </div>
-            <Button onClick={openInNewTab} size="lg" className="gap-2 px-8">
-              <ExternalLink className="h-4 w-4" />
-              Open in Browser
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 shrink-0"
+              onClick={() => setCaptchaDetected(false)}
+            >
+              <X className="h-4 w-4" />
             </Button>
-            <p className="text-xs text-muted-foreground">
-              Use the automation scripts (
-              <Wand2 className="inline h-3 w-3" />) to copy helpful scripts for
-              your browser console.
-            </p>
           </div>
-        ) : (
-          <>
-            <iframe
-              ref={iframeRef}
-              src={url}
-              className="h-full w-full border-0"
-              sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-top-navigation"
-              onLoad={handleLoad}
-              onError={handleIframeError}
-              title="Browser"
-            />
-            {isLoading && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-                <div className="flex flex-col items-center gap-2">
-                  <Loader2 className="h-8 w-8 animate-spin text-cyan-400" />
-                  <span className="text-sm text-muted-foreground">Loading...</span>
-                </div>
-              </div>
-            )}
-            {captchaDetected && !isLoading && (
-              <div className="absolute left-4 right-4 top-4 z-10 flex items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/10 p-3 backdrop-blur-sm">
-                <ShieldAlert className="h-5 w-5 shrink-0 text-destructive" />
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-destructive">CAPTCHA Detected</p>
-                  <p className="text-xs text-muted-foreground">
-                    Open automation tools to apply bypass scripts
-                  </p>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 shrink-0"
-                  onClick={() => setCaptchaDetected(false)}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-            )}
-          </>
         )}
       </div>
 
