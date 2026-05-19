@@ -92,10 +92,42 @@ final class BrowserViewModel: NSObject {
         do {
             let result = try await webView.evaluateJavaScriptAsync(script)
             if let status = result as? String {
-                captchaDetected = status.contains("CAPTCHA_DETECTED")
+                let detected = status.contains("CAPTCHA_DETECTED")
+                captchaDetected = detected
+                if detected {
+                    // Auto-apply bypass when captcha is detected
+                    await autoBypassCaptcha()
+                }
             }
         } catch {
             captchaDetected = false
+        }
+    }
+    
+    func autoBypassCaptcha() async {
+        // Inject anti-captcha scripts
+        let antiCaptchaScript = automationService.injectAntiCaptchaScript()
+        let bypassScript = automationService.bypassYopmailVerificationScript()
+        do {
+            let _ = try await webView.evaluateJavaScriptAsync(antiCaptchaScript)
+            let bypassResult = try await webView.evaluateJavaScriptAsync(bypassScript)
+            if let result = bypassResult as? String {
+                lastActionResult = "Auto-bypass: \(result)"
+            }
+            // Re-check after bypass
+            await checkCaptcha()
+        } catch {
+            lastActionResult = "Bypass error: \(error.localizedDescription)"
+        }
+    }
+    
+    func bypassEmailVerification() async {
+        let script = automationService.bypassYopmailVerificationScript()
+        do {
+            let result = try await webView.evaluateJavaScriptAsync(script)
+            lastActionResult = result as? String
+        } catch {
+            errorMessage = "Bypass failed: \(error.localizedDescription)"
         }
     }
     
@@ -130,7 +162,30 @@ extension BrowserViewModel: WKNavigationDelegate {
         
         Task {
             await checkCaptcha()
+            // Also apply Yopmail-specific bypass after every page load
+            await bypassEmailVerification()
         }
+    }
+    
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        isLoading = true
+    }
+    
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        let url = navigationAction.request.url?.absoluteString ?? ""
+        // Intercept navigation to verification/captcha pages and redirect to inbox
+        if url.contains("verify") || url.contains("captcha") || url.contains("challenge") {
+            if let login = url.components(separatedBy: "login=").last?.components(separatedBy: "&").first, !login.isEmpty {
+                if let inboxUrl = yopmailService.buildInboxURL(username: login) {
+                    DispatchQueue.main.async {
+                        self.loadURL(inboxUrl)
+                    }
+                    decisionHandler(.cancel)
+                    return
+                }
+            }
+        }
+        decisionHandler(.allow)
     }
     
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {

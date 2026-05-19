@@ -147,11 +147,17 @@ struct AutomationToolsSheet: View {
         NavigationStack {
             List {
                 Section("Quick Actions") {
-                    Button("Inject Anti-Captcha Scripts") {
-                        Task { await viewModel.injectAntiCaptcha() }
+                    Button("Force Anti-Captcha Bypass") {
+                        Task { await viewModel.autoBypassCaptcha() }
                         dismiss()
                     }
-                    .foregroundStyle(.cyan)
+                    .foregroundStyle(viewModel.captchaDetected ? .red : .cyan)
+                    
+                    Button("Bypass Email Verification") {
+                        Task { await viewModel.bypassEmailVerification() }
+                        dismiss()
+                    }
+                    .foregroundStyle(.orange)
                     
                     Button("Generate & Fill Username") {
                         Task {
