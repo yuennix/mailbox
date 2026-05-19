@@ -12,78 +12,78 @@ const BLOCKED_RES_HEADERS = [
   "x-content-type-options",
 ];
 
-// Rotate user agents to reduce bot detection
-const USER_AGENTS = [
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0",
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15",
+// Diverse browser fingerprints to rotate through
+const BROWSER_PROFILES = [
+  {
+    ua: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    lang: "en-US,en;q=0.9",
+    platform: "Win32",
+  },
+  {
+    ua: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+    accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    lang: "en-GB,en;q=0.9",
+    platform: "MacIntel",
+  },
+  {
+    ua: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
+    accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    lang: "en-US,en;q=0.5",
+    platform: "Win32",
+  },
+  {
+    ua: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    lang: "en-US,en;q=0.9",
+    platform: "Linux x86_64",
+  },
+  {
+    ua: "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15",
+    accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    lang: "en-US,en;q=0.9",
+    platform: "MacIntel",
+  },
 ];
-let uaIndex = 0;
-function nextUserAgent() {
-  return USER_AGENTS[uaIndex++ % USER_AGENTS.length];
+let profileIndex = 0;
+function nextProfile() {
+  return BROWSER_PROFILES[profileIndex++ % BROWSER_PROFILES.length];
 }
 
 function isCaptchaPage(html: string): boolean {
+  const lower = html.toLowerCase();
   return (
-    html.includes("g-recaptcha") ||
-    html.includes("recaptcha/api.js") ||
-    html.includes("Complete the CAPTCHA") ||
-    html.includes("complete the captcha") ||
-    (html.includes("captcha") && html.includes("robot"))
+    lower.includes("g-recaptcha") ||
+    lower.includes("recaptcha/api.js") ||
+    lower.includes("complete the captcha") ||
+    (lower.includes("captcha") && lower.includes("robot")) ||
+    (lower.includes("captcha") && lower.includes("sitekey"))
   );
 }
 
-function captchaBypassPage(retryUrl: string): string {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Retrying Yopmail...</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-           background: #0f172a; color: #e2e8f0;
-           display: flex; align-items: center; justify-content: center; min-height: 100vh; }
-    .card { background: #1e293b; border: 1px solid #334155; border-radius: 12px;
-            padding: 32px 28px; max-width: 340px; width: 90%; text-align: center; }
-    .icon { font-size: 40px; margin-bottom: 16px; }
-    h2 { font-size: 18px; font-weight: 600; margin-bottom: 10px; color: #f1f5f9; }
-    p  { font-size: 13px; color: #94a3b8; line-height: 1.6; margin-bottom: 8px; }
-    .bar { height: 4px; background: #1e3a5f; border-radius: 2px; margin: 20px 0 16px;
-           overflow: hidden; }
-    .bar-fill { height: 100%; background: linear-gradient(90deg, #38bdf8, #818cf8);
-                animation: fill 4s linear forwards; border-radius: 2px; }
-    @keyframes fill { from { width: 0% } to { width: 100% } }
-    button { background: #3b82f6; color: #fff; border: none; border-radius: 8px;
-             padding: 10px 22px; font-size: 14px; cursor: pointer; margin-top: 4px; }
-    button:hover { background: #2563eb; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div class="icon">🔄</div>
-    <h2>Yopmail Verification</h2>
-    <p>Yopmail asked for a CAPTCHA check. Automatically retrying with a fresh session…</p>
-    <div class="bar"><div class="bar-fill"></div></div>
-    <p style="font-size:12px;color:#64748b">Redirecting in 4 seconds</p>
-    <button onclick="go()">Retry Now</button>
-  </div>
-  <script>
-    function go() { window.location.replace('${retryUrl}'); }
-    setTimeout(go, 4000);
-  </script>
-</body>
-</html>`;
+function nowYtime() {
+  const d = new Date();
+  return `${d.getHours()}:${d.getMinutes()}`;
 }
 
-function rewriteHtml(html: string, reqPath: string): string {
-  // Detect CAPTCHA page and replace with an auto-retry page
-  if (isCaptchaPage(html)) {
-    // Retry the homepage so we get a fresh session
-    return captchaBypassPage(`${PROXY_PREFIX}/en/`);
-  }
+function buildHeaders(profile: typeof BROWSER_PROFILES[0], referer: string, cookies: string): Record<string, string> {
+  return {
+    host: "yopmail.com",
+    referer,
+    origin: "https://yopmail.com",
+    "user-agent": profile.ua,
+    accept: profile.accept,
+    "accept-language": profile.lang,
+    "accept-encoding": "identity",
+    "cache-control": "no-cache",
+    pragma: "no-cache",
+    "upgrade-insecure-requests": "1",
+    connection: "keep-alive",
+    cookie: cookies,
+  };
+}
+
+function rewriteHtml(html: string): string {
   html = html.replace(/https?:\/\/yopmail\.com/g, PROXY_PREFIX);
   html = html.replace(
     /(href|src|action|data-src)="\/(?!\/|yopmail-proxy)/g,
@@ -93,6 +93,7 @@ function rewriteHtml(html: string, reqPath: string): string {
 }
 
 function rewriteJs(js: string): string {
+  // Strip domain=yopmail.com from JS cookie assignments
   js = js.replace(/;domain=yopmail\.com/gi, "");
   js = js.replace(/domain=yopmail\.com;/gi, "");
   js = js.replace(/https?:\/\/yopmail\.com/g, PROXY_PREFIX);
@@ -109,8 +110,15 @@ function rewriteCookies(cookies: string[]): string[] {
 }
 
 function makeYtimeCookie(): string {
-  const now = new Date();
-  return `ytime=${now.getHours()}:${now.getMinutes()}; path=/`;
+  return `ytime=${nowYtime()}; path=/`;
+}
+
+// Collect Set-Cookie headers and return them as a cookie string for follow-up requests
+function cookiesFromSetCookie(headers: Headers): string {
+  const raw: string[] = (headers as any).getSetCookie?.() ?? [];
+  return raw
+    .map((c) => c.split(";")[0])  // keep only name=value
+    .join("; ");
 }
 
 function yopmailProxyPlugin(): Plugin {
@@ -131,31 +139,16 @@ function yopmailProxyPlugin(): Plugin {
                   .replace(/^https?:\/\/[^/]+\/?$/, "https://yopmail.com/")
               : "https://yopmail.com/";
 
-            // Build cookie string — inject ytime preemptively so Yopmail never
-            // has a reason to block based on a missing ytime cookie
-            const now = new Date();
-            const ytimeVal = `${now.getHours()}:${now.getMinutes()}`;
+            // Build cookie string — always include ytime
             let cookieStr = req.headers["cookie"] || "";
             if (!cookieStr.includes("ytime=")) {
-              cookieStr = cookieStr ? `${cookieStr}; ytime=${ytimeVal}` : `ytime=${ytimeVal}`;
+              cookieStr = cookieStr ? `${cookieStr}; ytime=${nowYtime()}` : `ytime=${nowYtime()}`;
             }
 
-            const forwardHeaders: Record<string, string> = {
-              host: "yopmail.com",
-              referer: upstreamReferer,
-              origin: "https://yopmail.com",
-              "user-agent": nextUserAgent(),
-              accept: req.headers["accept"] || "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-              "accept-language": req.headers["accept-language"] || "en-US,en;q=0.9",
-              "accept-encoding": "identity",
-              "cache-control": "no-cache",
-              pragma: "no-cache",
-              "upgrade-insecure-requests": "1",
-              "connection": "keep-alive",
-              "cookie": cookieStr,
-            };
+            let profile = nextProfile();
+            let forwardHeaders = buildHeaders(profile, upstreamReferer, cookieStr);
 
-            // Forward sec-fetch headers so Yopmail sees a legitimate same-origin request
+            // Forward sec-fetch headers
             for (const h of ["sec-fetch-site", "sec-fetch-mode", "sec-fetch-dest", "sec-fetch-user"]) {
               if (req.headers[h]) forwardHeaders[h] = req.headers[h];
             }
@@ -169,12 +162,129 @@ function yopmailProxyPlugin(): Plugin {
               });
             }
 
-            const fetchRes = await fetch(targetUrl, {
+            let fetchRes = await fetch(targetUrl, {
               method: req.method,
               headers: forwardHeaders,
               body: body || undefined,
               redirect: "manual",
             });
+
+            // ── AUTO CAPTCHA BYPASS ───────────────────────────────────────────
+            // If Yopmail serves a CAPTCHA page, silently retry up to 5 times.
+            // Each retry uses a fresh browser fingerprint + clean session cookies
+            // so Yopmail's bot heuristic sees a new, clean visitor.
+            if (fetchRes.headers.get("content-type")?.includes("text/html")) {
+              const peek = await fetchRes.text();
+              if (isCaptchaPage(peek)) {
+                let bypassed = false;
+                for (let attempt = 0; attempt < 5; attempt++) {
+                  // Small backoff: 200 ms, 400 ms, 600 ms …
+                  await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
+
+                  // Fresh fingerprint + clean session (only keep ytime)
+                  profile = nextProfile();
+                  const freshCookies = `ytime=${nowYtime()}`;
+                  const retryHeaders = buildHeaders(profile, "https://yopmail.com/en/", freshCookies);
+
+                  // Always GET on retry so we don't re-submit a stale form
+                  const retryRes = await fetch(`${TARGET}/en/`, {
+                    method: "GET",
+                    headers: retryHeaders,
+                    redirect: "manual",
+                  });
+
+                  if (retryRes.headers.get("content-type")?.includes("text/html")) {
+                    const retryHtml = await retryRes.text();
+                    if (!isCaptchaPage(retryHtml)) {
+                      // Success — swap in the clean response
+                      fetchRes = retryRes;
+
+                      // Collect any new session cookies and merge them into
+                      // the response so the browser carries them forward
+                      const newCookies = cookiesFromSetCookie(retryRes.headers);
+                      for (const [k, v] of retryRes.headers.entries()) {
+                        const lk = k.toLowerCase();
+                        if (BLOCKED_RES_HEADERS.includes(lk) || lk === "set-cookie") continue;
+                        res.setHeader(k, v);
+                      }
+                      const rawNew = (retryRes.headers as any).getSetCookie?.() ?? [];
+                      res.setHeader("set-cookie", [
+                        ...rewriteCookies(rawNew),
+                        makeYtimeCookie(),
+                      ]);
+                      res.statusCode = 200;
+                      res.setHeader("content-type", "text/html; charset=utf-8");
+                      res.removeHeader("content-encoding");
+                      res.removeHeader("content-length");
+                      return res.end(rewriteHtml(retryHtml));
+                    }
+                  }
+                }
+
+                // All 5 retries got CAPTCHA — very rate-limited IP.
+                // Show a friendly message telling the user to wait a minute.
+                res.statusCode = 200;
+                res.setHeader("content-type", "text/html; charset=utf-8");
+                res.removeHeader("content-encoding");
+                res.removeHeader("content-length");
+                return res.end(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Yopmail – Retrying</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+         background:#0f172a;color:#e2e8f0;display:flex;align-items:center;
+         justify-content:center;min-height:100vh}
+    .card{background:#1e293b;border:1px solid #334155;border-radius:12px;
+          padding:32px 28px;max-width:340px;width:90%;text-align:center}
+    h2{font-size:18px;font-weight:600;margin:12px 0 10px;color:#f1f5f9}
+    p{font-size:13px;color:#94a3b8;line-height:1.6;margin-bottom:10px}
+    .count{font-size:28px;font-weight:700;color:#38bdf8;margin-bottom:4px}
+    button{background:#3b82f6;color:#fff;border:none;border-radius:8px;
+           padding:10px 22px;font-size:14px;cursor:pointer;margin-top:12px}
+    button:hover{background:#2563eb}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div style="font-size:40px">⏳</div>
+    <h2>Too many requests</h2>
+    <p>Yopmail temporarily rate-limited this server.<br>
+       Retrying automatically in:</p>
+    <div class="count" id="c">60</div>
+    <p style="font-size:12px;color:#64748b">This resets every ~60 seconds</p>
+    <button onclick="go()">Retry Now</button>
+  </div>
+  <script>
+    var n = 60;
+    var t = setInterval(function(){
+      document.getElementById('c').textContent = --n;
+      if(n <= 0){ clearInterval(t); go(); }
+    }, 1000);
+    function go(){ window.location.replace('${PROXY_PREFIX}/en/'); }
+  </script>
+</body>
+</html>`);
+              }
+
+              // Normal page — no CAPTCHA
+              for (const [k, v] of fetchRes.headers.entries()) {
+                const lk = k.toLowerCase();
+                if (BLOCKED_RES_HEADERS.includes(lk) || lk === "set-cookie") continue;
+                res.setHeader(k, v);
+              }
+              const rawCk = (fetchRes.headers as any).getSetCookie?.() ?? [];
+              res.setHeader("set-cookie", [...rewriteCookies(rawCk), makeYtimeCookie()]);
+              res.statusCode = fetchRes.status;
+              res.setHeader("content-type", "text/html; charset=utf-8");
+              res.removeHeader("content-encoding");
+              res.removeHeader("content-length");
+              return res.end(rewriteHtml(peek));
+            }
+            // ─────────────────────────────────────────────────────────────────
 
             if (fetchRes.status >= 300 && fetchRes.status < 400) {
               const location = fetchRes.headers.get("location") || "";
@@ -186,44 +296,25 @@ function yopmailProxyPlugin(): Plugin {
               return res.end();
             }
 
-            for (const [key, value] of fetchRes.headers.entries()) {
-              const lower = key.toLowerCase();
-              if (BLOCKED_RES_HEADERS.includes(lower)) continue;
-              if (lower === "set-cookie") continue;
-              res.setHeader(key, value);
+            for (const [k, v] of fetchRes.headers.entries()) {
+              const lk = k.toLowerCase();
+              if (BLOCKED_RES_HEADERS.includes(lk) || lk === "set-cookie") continue;
+              res.setHeader(k, v);
             }
-
-            const rawCookies: string[] =
-              (fetchRes.headers as any).getSetCookie?.() ?? [];
-            const rewrittenCookies = rawCookies.length ? rewriteCookies(rawCookies) : [];
+            const rawCookies: string[] = (fetchRes.headers as any).getSetCookie?.() ?? [];
+            if (rawCookies.length) res.setHeader("set-cookie", rewriteCookies(rawCookies));
 
             res.statusCode = fetchRes.status;
 
             const contentType = fetchRes.headers.get("content-type") || "";
-
-            if (contentType.includes("text/html")) {
-              const html = await fetchRes.text();
-              const rewritten = rewriteHtml(html, targetPath);
-              res.setHeader("content-type", "text/html; charset=utf-8");
-              res.removeHeader("content-encoding");
-              res.removeHeader("content-length");
-              res.setHeader("set-cookie", [...rewrittenCookies, makeYtimeCookie()]);
-              // If it was a CAPTCHA page, send 200 so the bypass page renders
-              if (isCaptchaPage(html)) res.statusCode = 200;
-              return res.end(rewritten);
-            }
-
             if (contentType.includes("javascript") || targetPath.endsWith(".js")) {
               const js = await fetchRes.text();
-              const rewritten = rewriteJs(js);
               res.setHeader("content-type", contentType || "application/javascript; charset=utf-8");
               res.removeHeader("content-encoding");
               res.removeHeader("content-length");
-              if (rewrittenCookies.length) res.setHeader("set-cookie", rewrittenCookies);
-              return res.end(rewritten);
+              return res.end(rewriteJs(js));
             }
 
-            if (rewrittenCookies.length) res.setHeader("set-cookie", rewrittenCookies);
             const buffer = Buffer.from(await fetchRes.arrayBuffer());
             res.removeHeader("content-encoding");
             res.removeHeader("content-length");
@@ -244,15 +335,11 @@ export default defineConfig(() => ({
     host: "0.0.0.0",
     port: 5000,
     allowedHosts: true,
-    hmr: {
-      overlay: false,
-    },
+    hmr: { overlay: false },
   },
   plugins: [react(), yopmailProxyPlugin()],
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-    },
+    alias: { "@": path.resolve(__dirname, "./src") },
   },
   envPrefix: ["VITE_", "EXPO_PUBLIC_"],
 }));
