@@ -5,6 +5,11 @@
       "name": "MailBox",
       "path": "ios",
       "framework": "swift"
+    },
+    {
+      "name": "MailBox",
+      "path": "web",
+      "framework": "web"
     }
   ]
 }
