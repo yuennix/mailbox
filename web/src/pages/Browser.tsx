@@ -421,7 +421,7 @@ export default function BrowserPage() {
           ref={iframeRef}
           src={iframeSrc}
           className="h-full w-full border-0"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-top-navigation"
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation allow-modals allow-downloads"
           onLoad={handleLoad}
           title="Browser"
         />

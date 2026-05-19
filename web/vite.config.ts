@@ -21,6 +21,16 @@ function rewriteHtml(html: string): string {
   return html;
 }
 
+function rewriteJs(js: string): string {
+  // Strip domain=yopmail.com from document.cookie assignments so cookies
+  // are stored under our proxy domain and forwarded correctly on inbox loads
+  js = js.replace(/;domain=yopmail\.com/gi, "");
+  js = js.replace(/domain=yopmail\.com;/gi, "");
+  // Rewrite any hardcoded absolute URLs to go through our proxy
+  js = js.replace(/https?:\/\/yopmail\.com/g, PROXY_PREFIX);
+  return js;
+}
+
 function rewriteCookies(cookies: string[]): string[] {
   return cookies.map((c) =>
     c
@@ -28,6 +38,11 @@ function rewriteCookies(cookies: string[]): string[] {
       .replace(/;\s*secure/gi, "")
       .replace(/;\s*samesite=[^;]*/gi, "")
   );
+}
+
+function makeYtimeCookie(): string {
+  const now = new Date();
+  return `ytime=${now.getHours()}:${now.getMinutes()}; path=/`;
 }
 
 function yopmailProxyPlugin(): Plugin {
@@ -62,6 +77,13 @@ function yopmailProxyPlugin(): Plugin {
               "cache-control": "no-cache",
               pragma: "no-cache",
             };
+
+            // Forward sec-fetch headers so Yopmail sees a legitimate same-origin request
+            for (const h of ["sec-fetch-site", "sec-fetch-mode", "sec-fetch-dest", "sec-fetch-user"]) {
+              if (req.headers[h]) forwardHeaders[h] = req.headers[h];
+            }
+
+            // Forward cookies — browser will include ytime once we've set it
             if (req.headers["cookie"]) {
               forwardHeaders["cookie"] = req.headers["cookie"];
             }
@@ -99,24 +121,42 @@ function yopmailProxyPlugin(): Plugin {
               res.setHeader(key, value);
             }
 
+            // Rewrite Set-Cookie headers to work on our proxy domain
             const rawCookies: string[] =
               (fetchRes.headers as any).getSetCookie?.() ?? [];
-            if (rawCookies.length) {
-              res.setHeader("set-cookie", rewriteCookies(rawCookies));
-            }
+            const rewrittenCookies = rawCookies.length ? rewriteCookies(rawCookies) : [];
 
             res.statusCode = fetchRes.status;
 
             const contentType = fetchRes.headers.get("content-type") || "";
+
             if (contentType.includes("text/html")) {
               const html = await fetchRes.text();
               const rewritten = rewriteHtml(html);
               res.setHeader("content-type", "text/html; charset=utf-8");
               res.removeHeader("content-encoding");
               res.removeHeader("content-length");
+              // Inject ytime cookie via HTTP so it's stored under our proxy domain.
+              // Yopmail's JS sets this with domain=yopmail.com which fails on our domain,
+              // so we set it server-side instead.
+              res.setHeader("set-cookie", [...rewrittenCookies, makeYtimeCookie()]);
               return res.end(rewritten);
             }
 
+            if (contentType.includes("javascript") || targetPath.endsWith(".js")) {
+              const js = await fetchRes.text();
+              const rewritten = rewriteJs(js);
+              res.setHeader(
+                "content-type",
+                contentType || "application/javascript; charset=utf-8"
+              );
+              res.removeHeader("content-encoding");
+              res.removeHeader("content-length");
+              if (rewrittenCookies.length) res.setHeader("set-cookie", rewrittenCookies);
+              return res.end(rewritten);
+            }
+
+            if (rewrittenCookies.length) res.setHeader("set-cookie", rewrittenCookies);
             const buffer = Buffer.from(await fetchRes.arrayBuffer());
             res.removeHeader("content-encoding");
             res.removeHeader("content-length");
